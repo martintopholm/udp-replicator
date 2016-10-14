@@ -72,21 +72,34 @@ processing_one_packet(int fd)
 	AN(cmsg != NULL);
 	AN(in_pktinfo != NULL);
 
-	/* Rewrite source address */
+	/*
+	 * Rewrite source address if source isn't 127.0.0.0/8 as this may
+	 * result in EINVAL when egress non-loopback interface.
+	 */
 	AN(msgh.msg_namelen == sizeof(src));
 	AN(sizeof(src.sin_addr) == sizeof(in_pktinfo->ipi_spec_dst));
-	memcpy(&in_pktinfo->ipi_spec_dst, &src.sin_addr, sizeof(in_pktinfo->ipi_spec_dst));
 	in_pktinfo->ipi_ifindex = 0;
+	if (ntohl(src.sin_addr.s_addr) >= 0x7f000001 &&
+	    ntohl(src.sin_addr.s_addr) <= 0x7fffffff) {
+		memset(&in_pktinfo->ipi_spec_dst, 0,
+		    sizeof(in_pktinfo->ipi_spec_dst));
+	} else {
+		memcpy(&in_pktinfo->ipi_spec_dst, &src.sin_addr,
+		    sizeof(in_pktinfo->ipi_spec_dst));
+	}
 
-	/* Adjust iovec length (only transmit actual received bytes */
+	/*
+	 * Adjust iovec length to actual payload size and send with spoofed src
+	 * (in_pktinfo->ipi_spec_dst) sending to dst
+	 */
 	msgh.msg_iov[0].iov_len = payload_len;
-
-	/* Send payload_len bytes spoofing src (in_pktinfo->ipi_spec_dst)
-	 * sending to dst */
 	LL_FOREACH(target_list, ent) {
 		msgh.msg_name = &ent->sin;
 		msgh.msg_namelen = sizeof(ent->sin);
 		sent_bytes = sendmsg(fd, &msgh, 0);
+		if (sent_bytes < 0) {
+			perror("sendmsg()");
+		}
 		AN(sent_bytes == payload_len);
 	}
 	return 0;
