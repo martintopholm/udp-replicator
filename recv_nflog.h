@@ -4,7 +4,8 @@
 #define RECV_NFLOG_H
 #include <sys/socket.h>
 
-typedef void (*recv_nflog_cb_t)(char *, size_t, struct sockaddr *, socklen_t);
+typedef void (*recv_nflog_cb_t)(char *, size_t, struct sockaddr *, socklen_t,
+    void *);
 
 struct recv_nflog {
 	unsigned long		magic;
@@ -17,5 +18,4 @@ struct recv_nflog {
 
 struct recv_nflog *recv_nflog_new(int, recv_nflog_cb_t, void *);
 void recv_nflog_free(struct recv_nflog *);
-ssize_t recv_nflog_packet(struct recv_nflog *, char *, size_t,
-    struct sockaddr *, socklen_t *);
+int recv_nflog_packet_dispatch(struct recv_nflog *);

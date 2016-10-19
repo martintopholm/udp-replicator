@@ -35,7 +35,7 @@ int udp_socket;
 
 void
 process_packet(char *payload, size_t payload_len,
-    struct sockaddr *sa_src, socklen_t sa_srclen)
+    struct sockaddr *sa_src, socklen_t sa_srclen, void *ctx)
 {
 	char cmsg_buf[1024];
 	struct msghdr msg[1];
@@ -212,7 +212,7 @@ main(int argc, char *argv[])
 	if (rcv) {
 		printf("NFLOG mode...\n");
 		for (;;)
-			recv_nflog_packet(rcv, NULL, 0, NULL, 0);
+			recv_nflog_packet_dispatch(rcv);
 	} else {
 		for (;;)
 			processing_one_packet(fd);

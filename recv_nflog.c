@@ -63,7 +63,8 @@ cb_nflog(struct nflog_g_handle *group, struct nfgenmsg *nfmsg,
 		WRONG("Bad ethertype received");
 		return 0;
 	}
-	rcv->cb_func(packet, packet_len, (struct sockaddr *)&sastor, salen);
+	rcv->cb_func(packet, packet_len, (struct sockaddr *)&sastor, salen,
+	    rcv->cb_ctx);
 	return 0;
 }
 
@@ -102,9 +103,8 @@ recv_nflog_free(struct recv_nflog *rcv)
 	FREE_OBJ(rcv);
 }
 
-ssize_t
-recv_nflog_packet(struct recv_nflog *rcv, char *packet, size_t packet_max,
-    struct sockaddr *src, socklen_t *addrlen)
+int
+recv_nflog_packet_dispatch(struct recv_nflog *rcv)
 {
 	char buf[8192];
 	ssize_t len;
@@ -112,6 +112,5 @@ recv_nflog_packet(struct recv_nflog *rcv, char *packet, size_t packet_max,
 	CHECK_OBJ_NOTNULL(rcv, RECV_NFLOG_MAGIC);
 	len = recv(nflog_fd(rcv->nf_h), buf, sizeof(buf), 0);
 	AN(len > 0);
-	nflog_handle_packet(rcv->nf_h, buf, len);
-	return 0;
+	return nflog_handle_packet(rcv->nf_h, buf, len);
 }
