@@ -252,7 +252,6 @@ int
 main(int argc, char *argv[])
 {
 	struct recv_nflog *rcv;
-	int fd;
 	int nflog_group;
 	int udp_port;
 	char *end;
@@ -287,8 +286,8 @@ main(int argc, char *argv[])
 	target_list = setup_list(argc, argv);
 	if (target_list == NULL)
 		usage(NULL);
-	fd = setup_socket(udp_port);
-	if (fd < 0)
+	udp_socket = setup_socket(udp_port);
+	if (udp_socket < 0)
 		err(2, "setup_socket");
 	if (nflog_group) {
 		rcv = recv_nflog_new(31, process_packet, NULL);
