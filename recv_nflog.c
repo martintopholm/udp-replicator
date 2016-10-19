@@ -6,14 +6,10 @@
 
 #include <libnetfilter_log/libnetfilter_log.h>
 #include <libnfnetlink/libnfnetlink.h>
-
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "ntimed_tricks.h"
 #include "recv_nflog.h"
-#include "udp_replicator.h"
 
 /*
  * Callback from netfilter_log framework via nflog_handle_packet. Retrieve ip
