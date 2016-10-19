@@ -18,4 +18,4 @@ struct recv_nflog {
 struct recv_nflog *recv_nflog_new(int, recv_nflog_cb_t, void *);
 void recv_nflog_free(struct recv_nflog *);
 ssize_t recv_nflog_packet(struct recv_nflog *, char *, size_t,
-    struct sockaddr *, socklen_t);
+    struct sockaddr *, socklen_t *);

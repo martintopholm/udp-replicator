@@ -1,3 +1,4 @@
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <linux/netlink.h>
 #include <netinet/in.h>
@@ -5,8 +6,8 @@
 #include <netinet/udp.h>
 
 #include <libnetfilter_log/libnetfilter_log.h>
-#include <libnfnetlink/libnfnetlink.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "ntimed_tricks.h"
 #include "recv_nflog.h"
@@ -103,7 +104,7 @@ recv_nflog_free(struct recv_nflog *rcv)
 
 ssize_t
 recv_nflog_packet(struct recv_nflog *rcv, char *packet, size_t packet_max,
-    struct sockaddr *sa, socklen_t salen)
+    struct sockaddr *src, socklen_t *addrlen)
 {
 	char buf[8192];
 	ssize_t len;
