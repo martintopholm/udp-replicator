@@ -10,6 +10,7 @@
 
 #include "utlist.h"
 #include "ntimed_tricks.h"
+#include "recv_nflog.h"
 
 
 /*
@@ -32,9 +33,9 @@ int udp_socket;
 #define sin_is_loopback(x) ( \
     (ntohl((x)->sin_addr.s_addr) & 0xff000000) == 0x7f000000)
 
-int
-process_packet(char *payload, size_t payload_len, struct sockaddr *sa_src,
-    socklen_t sa_srclen)
+void
+process_packet(char *payload, size_t payload_len,
+    struct sockaddr *sa_src, socklen_t sa_srclen)
 {
 	char cmsg_buf[1024];
 	struct msghdr msg[1];
@@ -82,7 +83,6 @@ process_packet(char *payload, size_t payload_len, struct sockaddr *sa_src,
 		}
 		AN(sent_bytes == payload_len);
 	}
-	return 0;
 }
 
 /*
@@ -162,18 +162,13 @@ processing_one_packet(int fd)
 	return 0;
 }
 
-void *open_nflog(int);
-int processing_one_nflog(void *);
-
-
-
 /*
  * Setup a UDP socket and replicate each received packet to target_list.
  */
 int
 main(int argc, char *argv[])
 {
-	void *nflog;
+	struct recv_nflog *rcv;
 	struct entry *ent;
 	struct sockaddr_in sin;
 	int fd;
@@ -212,12 +207,12 @@ main(int argc, char *argv[])
 	}
 	AZ(setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &one, sizeof(one)));
 
-	nflog = open_nflog(31);
-	AN(nflog);
-	if (nflog) {
+	rcv = recv_nflog_new(31, process_packet, NULL);
+	AN(rcv);
+	if (rcv) {
 		printf("NFLOG mode...\n");
 		for (;;)
-			processing_one_nflog(nflog);
+			recv_nflog_packet(rcv, NULL, 0, NULL, 0);
 	} else {
 		for (;;)
 			processing_one_packet(fd);

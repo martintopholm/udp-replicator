@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "ntimed_tricks.h"
+#include "recv_nflog.h"
 #include "udp_replicator.h"
 
 /*
@@ -22,6 +23,7 @@ static int
 cb_nflog(struct nflog_g_handle *group, struct nfgenmsg *nfmsg,
     struct nflog_data *nfad, void *ctx)
 {
+	struct recv_nflog *rcv;
 	struct sockaddr_storage sastor;
 	struct sockaddr_in *sin;
 	socklen_t salen;
@@ -33,6 +35,7 @@ cb_nflog(struct nflog_g_handle *group, struct nfgenmsg *nfmsg,
 	struct udphdr *udp;
 	int proto;
 
+	CAST_OBJ_NOTNULL(rcv, ctx, RECV_NFLOG_MAGIC);
 	pkt_hdr = nflog_get_msg_packet_hdr(nfad);
 	ethertype = htons(pkt_hdr->hw_protocol);
 	packet_len = nflog_get_payload(nfad, &packet);
@@ -63,45 +66,55 @@ cb_nflog(struct nflog_g_handle *group, struct nfgenmsg *nfmsg,
 		WRONG("Bad ethertype received");
 		return 0;
 	}
-	process_packet(packet, packet_len, (struct sockaddr *)&sastor, salen);
+	rcv->cb_func(packet, packet_len, (struct sockaddr *)&sastor, salen);
 	return 0;
 }
 
-
-struct nflog_handle *nflog;
-struct nflog_g_handle *group;
-
-void *
-open_nflog(int groupnumber)
+struct recv_nflog *
+recv_nflog_new(int group, recv_nflog_cb_t cb_func, void *cb_ctx)
 {
+	struct recv_nflog *rcv;
 	int opt;
 
-	AN(nflog = nflog_open());
-	AZ(nflog_unbind_pf(nflog, AF_INET));
-	AZ(nflog_unbind_pf(nflog, AF_INET6));
-	AZ(nflog_bind_pf(nflog, AF_INET));
-
-	AN(group = nflog_bind_group(nflog, groupnumber));
-	AZ(nflog_set_mode(group, NFULNL_COPY_PACKET, 0xffff));
-	AZ(nflog_set_nlbufsiz(group, 8192));
-	AZ(nflog_set_timeout(group, 0));
+	ALLOC_OBJ(rcv, RECV_NFLOG_MAGIC);
+	AN(rcv);
+	AN(rcv->nf_h = nflog_open());
+	AZ(nflog_unbind_pf(rcv->nf_h, AF_INET));
+	AZ(nflog_unbind_pf(rcv->nf_h, AF_INET6));
+	AZ(nflog_bind_pf(rcv->nf_h, AF_INET));
+	AN(rcv->nf_gh = nflog_bind_group(rcv->nf_h, group));
+	AZ(nflog_set_mode(rcv->nf_gh, NFULNL_COPY_PACKET, 0xffff));
+	AZ(nflog_set_nlbufsiz(rcv->nf_gh, 8192));
+	AZ(nflog_set_timeout(rcv->nf_gh, 0));
 	opt = 1;
-	AZ(setsockopt(nflog_fd(nflog), SOL_NETLINK, NETLINK_NO_ENOBUFS, &opt, sizeof(opt)));
-	AZ(nflog_callback_register(group, cb_nflog, NULL));
-
-	return nflog;
+	AZ(setsockopt(nflog_fd(rcv->nf_h), SOL_NETLINK, NETLINK_NO_ENOBUFS,
+	    &opt, sizeof(opt)));
+	AZ(nflog_callback_register(rcv->nf_gh, cb_nflog, rcv));
+	rcv->cb_func = cb_func;
+	rcv->cb_ctx = cb_ctx;
+	return rcv;
 }
 
-int
-processing_one_nflog(struct nflog_handle *nflog)
+void
+recv_nflog_free(struct recv_nflog *rcv)
+{
+
+	CHECK_OBJ_NOTNULL(rcv, RECV_NFLOG_MAGIC);
+	if (rcv->nf_h != NULL)
+		nflog_close(rcv->nf_h);
+	FREE_OBJ(rcv);
+}
+
+ssize_t
+recv_nflog_packet(struct recv_nflog *rcv, char *packet, size_t packet_max,
+    struct sockaddr *sa, socklen_t salen)
 {
 	char buf[8192];
 	ssize_t len;
 
-	printf("Line %d\n", __LINE__);
-	len = recv(nflog_fd(nflog), buf, sizeof(buf), 0);
+	CHECK_OBJ_NOTNULL(rcv, RECV_NFLOG_MAGIC);
+	len = recv(nflog_fd(rcv->nf_h), buf, sizeof(buf), 0);
 	AN(len > 0);
-	nflog_handle_packet(nflog, buf, len);
+	nflog_handle_packet(rcv->nf_h, buf, len);
 	return 0;
 }
-
