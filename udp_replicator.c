@@ -9,10 +9,9 @@
 #include <string.h>
 #include <unistd.h>
 
-
-#include "utlist.h"
 #include "ntimed_tricks.h"
 #include "recv_nflog.h"
+#include "utlist.h"
 
 
 /*
@@ -77,6 +76,7 @@ process_packet(char *payload, size_t payload_len,
 	msg->msg_controllen = cmsg_length;
 
 	LL_FOREACH(target_list, ent) {
+		printf("%s %d\n", ent->text, ntohs(ent->sin.sin_port));
 		msg->msg_name = &ent->sin;
 		msg->msg_namelen = sizeof(ent->sin);
 		sent_bytes = sendmsg(udp_socket, msg, 0);
@@ -131,20 +131,69 @@ processing_one_packet(int fd)
 	process_packet(payload, payload_len, msgh.msg_name, msgh.msg_namelen, NULL);
 }
 
+
+static int
+parse_sockaddr(char *str, struct sockaddr_in *sin)
+{
+	char *ptr_port;
+	char *end;
+	int port;
+
+	port = 0;
+	ptr_port = strchr(str, ':');
+	if (ptr_port != NULL) {
+		*ptr_port = '\0';
+		ptr_port += 1;
+		port = strtol(ptr_port, &end, 10);
+		if (*ptr_port != '\0' && *end != '\0')
+			return -1;
+		if (port < 0 || port > 65535)
+			return -1;
+	}
+	sin->sin_family = AF_INET;
+	if (inet_pton(AF_INET, str, &sin->sin_addr) != 1)
+		return -1;
+	sin->sin_port = htons(port);
+	return 0;
+}
+
+void
+free_list(struct entry *list)
+{
+	struct entry *ent;
+	struct entry *tmp;
+
+	LL_FOREACH_SAFE(list, ent, tmp) {
+		if (ent->text != NULL)
+			free(ent->text);
+		free(ent);
+	}
+}
+
 static struct entry *
 setup_list(int argc, char *argv[])
 {
 	struct entry *list;
 	struct entry *ent;
 	int i;
+	struct sockaddr_in sin;
 
 	list = NULL;
 	for (i = 0; i < argc; i++) {
+		if (parse_sockaddr(argv[i], &sin) < 0) {
+			fprintf(stderr, "unable to parse %s\n", argv[i]);
+			free_list(list);
+			return NULL;
+		}
+		if (sin.sin_port == 0) {
+			fprintf(stderr, "port not specified for %s\n",
+			    argv[i]);
+			free_list(list);
+			return NULL;
+		}
 		AN(ent = calloc(1, sizeof(*ent)));
 		ent->text = strdup(argv[i]);
-		AN(inet_pton(AF_INET, argv[i], &ent->sin.sin_addr) == 1);
-		ent->sin.sin_family = AF_INET;
-		ent->sin.sin_port = htons(514);
+		memcpy(&ent->sin, &sin, sizeof(ent->sin));
 		LL_APPEND(list, ent);
 	}
 	return list;
@@ -191,7 +240,8 @@ usage(char *whine)
 		fprintf(stderr, "udp_replicator: %s\n", whine);
 	fprintf(stderr,
 	    "usage: udp_replicator [-h] [-g group] [-p port] "
-	    "address [address]\n");
+	    "address [address]\n"
+	    "\n");
 	exit(1);
 }
 
@@ -232,9 +282,11 @@ main(int argc, char *argv[])
 	}
 	argc -= optind;
 	argv += optind;
+	if (argc < 1)
+		usage("empty target list");
 	target_list = setup_list(argc, argv);
 	if (target_list == NULL)
-		usage("empty target list");
+		usage(NULL);
 	fd = setup_socket(udp_port);
 	if (fd < 0)
 		err(2, "setup_socket");
@@ -250,7 +302,7 @@ main(int argc, char *argv[])
 			recv_nflog_packet_dispatch(rcv);
 	} else {
 		for (;;)
-			processing_one_packet(fd);
+			processing_one_packet(udp_socket);
 	}
 
 	if (nflog_group)
