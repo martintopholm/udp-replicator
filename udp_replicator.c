@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
 
 #include "utlist.h"
 #include "ntimed_tricks.h"
@@ -90,18 +92,15 @@ process_packet(char *payload, size_t payload_len,
  * original sender as source address. Port will be based on the listening
  * socket's sin_port.
  */
-int
+void
 processing_one_packet(int fd)
 {
-	struct entry *ent;
 	struct msghdr msgh; /* recv(2) */
 	struct cmsghdr *cmsg; /* cmsg(3) */
 	struct iovec iov;
 	char payload[8192];
 	char control[1024];
-	
 	ssize_t payload_len;
-	ssize_t sent_bytes;
 	struct in_pktinfo *in_pktinfo;
 
 	struct sockaddr_in src;
@@ -129,37 +128,65 @@ processing_one_packet(int fd)
 	AN(cmsg != NULL);
 	AN(in_pktinfo != NULL);
 
-	/*
-	 * Rewrite source address if source isn't 127.0.0.0/8 as this may
-	 * result in EINVAL when egress non-loopback interface.
-	 */
-	AN(msgh.msg_namelen == sizeof(src));
-	AN(sizeof(src.sin_addr) == sizeof(in_pktinfo->ipi_spec_dst));
-	in_pktinfo->ipi_ifindex = 0;
-	if (ntohl(src.sin_addr.s_addr) >= 0x7f000001 &&
-	    ntohl(src.sin_addr.s_addr) <= 0x7fffffff) {
-		memset(&in_pktinfo->ipi_spec_dst, 0,
-		    sizeof(in_pktinfo->ipi_spec_dst));
-	} else {
-		memcpy(&in_pktinfo->ipi_spec_dst, &src.sin_addr,
-		    sizeof(in_pktinfo->ipi_spec_dst));
-	}
+	process_packet(payload, payload_len, msgh.msg_name, msgh.msg_namelen, NULL);
+}
 
-	/*
-	 * Adjust iovec length to actual payload size and send with spoofed src
-	 * (in_pktinfo->ipi_spec_dst) sending to dst
-	 */
-	msgh.msg_iov[0].iov_len = payload_len;
-	LL_FOREACH(target_list, ent) {
-		msgh.msg_name = &ent->sin;
-		msgh.msg_namelen = sizeof(ent->sin);
-		sent_bytes = sendmsg(fd, &msgh, 0);
-		if (sent_bytes < 0) {
-			perror("sendmsg()");
-		}
-		AN(sent_bytes == payload_len);
+static struct entry *
+setup_list(int argc, char *argv[])
+{
+	struct entry *list;
+	struct entry *ent;
+	int i;
+
+	list = NULL;
+	for (i = 0; i < argc; i++) {
+		AN(ent = calloc(1, sizeof(*ent)));
+		ent->text = strdup(argv[i]);
+		AN(inet_pton(AF_INET, argv[i], &ent->sin.sin_addr) == 1);
+		ent->sin.sin_family = AF_INET;
+		ent->sin.sin_port = htons(514);
+		LL_APPEND(list, ent);
 	}
-	return 0;
+	return list;
+}
+
+static int
+setup_socket(unsigned short udp_port)
+{
+	struct sockaddr_in sin;
+	int fd;
+	int one;
+
+	memset(&sin, 0, sizeof(sin));
+	sin.sin_family = AF_INET;
+	if (udp_port > 0)
+		sin.sin_port = htons(udp_port);
+	fd = socket(sin.sin_family, SOCK_DGRAM, 17);
+	AN(fd >= 0);
+	if (bind(fd, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
+		perror("bind()");
+		return -1;
+	}
+	one = 1;
+	AZ(setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)));
+	if (setsockopt(fd, IPPROTO_IP, IP_TRANSPARENT, &one, sizeof(one)) < 0) {
+		perror("setsockopt(fd, IPPROTO_IP, ...)");
+		return -1;
+	}
+	AZ(setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &one, sizeof(one)));
+
+	return fd;
+}
+
+static void
+usage(char *whine)
+{
+	if (whine != NULL)
+		fprintf(stderr, "udp_replicator: %s\n", whine);
+	fprintf(stderr,
+	    "usage: udp_replicator [-h] [-g group] [-p port] "
+	    "address [address]\n");
+	exit(1);
 }
 
 /*
@@ -169,54 +196,55 @@ int
 main(int argc, char *argv[])
 {
 	struct recv_nflog *rcv;
-	struct entry *ent;
-	struct sockaddr_in sin;
 	int fd;
-	int one;
-	int i;
+	int nflog_group;
+	int udp_port;
+	char *end;
+	int ch;
 
-	target_list = NULL;
-	for (i = 1; i < argc; i++) {
-		AN(ent = calloc(1, sizeof(*ent)));
-		ent->text = strdup(argv[i]);
-		AN(inet_pton(AF_INET, argv[i], &ent->sin.sin_addr) == 1);
-		ent->sin.sin_family = AF_INET;
-		ent->sin.sin_port = htons(514);
-		LL_APPEND(target_list, ent);
+	nflog_group = 0;
+	udp_port = 0;
+	while ((ch = getopt(argc, argv, "hg:p:")) != -1) {
+		switch (ch) {
+		case 'g':
+			nflog_group = strtol(optarg, &end, 10);
+			if (*optarg != '\0' && *end != '\0')
+				usage("invalid group");
+			break;
+		case 'p':
+			udp_port = strtol(optarg, &end, 10);
+			if (*optarg != '\0' && *end != '\0')
+				usage("invalid udp port");
+			if (udp_port < 0 || udp_port > 65535)
+				usage("invalid udp port");
+			break;
+		case 'h':
+		default:
+			usage(NULL);
+			/* NOTREACHED */
+		}
 	}
+	argc -= optind;
+	argv += optind;
+	target_list = setup_list(argc, argv);
 	if (target_list == NULL) {
 		fprintf(stderr, "empty target list\n");
 		return 1;
 	}
+	fd = setup_socket(udp_port);
+	AN(fd > -1);
 
-	one = 1;
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons(8514);
-
-	udp_socket = fd = socket(sin.sin_family, SOCK_DGRAM, 17);
-	AN(fd >= 0);
-	if (bind(fd, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
-		perror("bind()");
-		return 1;
-	}
-	AZ(setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)));
-	if (setsockopt(fd, IPPROTO_IP, IP_TRANSPARENT, &one, sizeof(one)) < 0) {
-		perror("setsockopt(fd, IPPROTO_IP, ...)");
-		return 1;
-	}
-	AZ(setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &one, sizeof(one)));
-
-	rcv = recv_nflog_new(31, process_packet, NULL);
-	AN(rcv);
-	if (rcv) {
-		printf("NFLOG mode...\n");
+	/* Packet processing */
+	if (nflog_group) {
+		AN(rcv = recv_nflog_new(31, process_packet, NULL));
 		for (;;)
 			recv_nflog_packet_dispatch(rcv);
+		recv_nflog_free(rcv);
 	} else {
 		for (;;)
 			processing_one_packet(fd);
 	}
+
 	return 0;
 }
 
