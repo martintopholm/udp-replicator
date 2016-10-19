@@ -164,18 +164,24 @@ setup_socket(unsigned short udp_port)
 	fd = socket(sin.sin_family, SOCK_DGRAM, 17);
 	AN(fd >= 0);
 	if (bind(fd, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
-		perror("bind()");
 		return -1;
 	}
 	one = 1;
 	AZ(setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)));
 	if (setsockopt(fd, IPPROTO_IP, IP_TRANSPARENT, &one, sizeof(one)) < 0) {
-		perror("setsockopt(fd, IPPROTO_IP, ...)");
 		return -1;
 	}
 	AZ(setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &one, sizeof(one)));
 
 	return fd;
+}
+
+static void
+err(int eval, char *whine)
+{
+
+	perror(whine);
+	exit(eval);
 }
 
 static void
@@ -227,24 +233,28 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 	target_list = setup_list(argc, argv);
-	if (target_list == NULL) {
-		fprintf(stderr, "empty target list\n");
-		return 1;
-	}
+	if (target_list == NULL)
+		usage("empty target list");
 	fd = setup_socket(udp_port);
-	AN(fd > -1);
+	if (fd < 0)
+		err(2, "setup_socket");
+	if (nflog_group) {
+		rcv = recv_nflog_new(31, process_packet, NULL);
+		if (rcv == NULL)
+			err(2, "recv_nflog_new");
+	}
 
 	/* Packet processing */
 	if (nflog_group) {
-		AN(rcv = recv_nflog_new(31, process_packet, NULL));
 		for (;;)
 			recv_nflog_packet_dispatch(rcv);
-		recv_nflog_free(rcv);
 	} else {
 		for (;;)
 			processing_one_packet(fd);
 	}
 
+	if (nflog_group)
+		recv_nflog_free(rcv);
 	return 0;
 }
 
