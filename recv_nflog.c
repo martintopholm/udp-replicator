@@ -31,6 +31,7 @@ cb_nflog(struct nflog_g_handle *group, struct nfgenmsg *nfmsg,
 	struct iphdr *ip;
 	struct udphdr *udp;
 	int proto;
+	int dst_port;
 
 	CAST_OBJ_NOTNULL(rcv, ctx, RECV_NFLOG_MAGIC);
 	pkt_hdr = nflog_get_msg_packet_hdr(nfad);
@@ -53,6 +54,7 @@ cb_nflog(struct nflog_g_handle *group, struct nfgenmsg *nfmsg,
 		udp = (struct udphdr *)packet;
 		AN(ntohs(udp->uh_ulen) == packet_len);
 		sin->sin_port = udp->uh_sport;
+		dst_port = udp->uh_dport;
 		packet += sizeof(*udp);
 		packet_len -= sizeof(*udp);
 		break;
@@ -63,8 +65,8 @@ cb_nflog(struct nflog_g_handle *group, struct nfgenmsg *nfmsg,
 		WRONG("Bad ethertype received");
 		return 0;
 	}
-	rcv->cb_func(packet, packet_len, (struct sockaddr *)&sastor, salen,
-	    rcv->cb_ctx);
+	rcv->cb_func(packet, packet_len, dst_port, (struct sockaddr *)&sastor,
+	    salen, rcv->cb_ctx);
 	return 0;
 }
 

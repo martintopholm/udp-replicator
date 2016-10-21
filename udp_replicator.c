@@ -35,7 +35,7 @@ int udp_socket;
     (ntohl((x)->sin_addr.s_addr) & 0xff000000) == 0x7f000000)
 
 void
-process_packet(char *payload, size_t payload_len,
+process_packet(char *payload, size_t payload_len, unsigned short dst_port,
     struct sockaddr *sa_src, socklen_t sa_srclen, void *ctx)
 {
 	char cmsg_buf[1024];
@@ -44,17 +44,18 @@ process_packet(char *payload, size_t payload_len,
 	struct cmsghdr *cmsg;
 	struct in_pktinfo *in_pktinfo;
 	size_t cmsg_length;
-	struct sockaddr_in *src;
+	struct sockaddr_in src;
+	struct sockaddr_in dst;
 	struct entry *ent;
 	ssize_t sent_bytes;
 
 	AN(sa_src->sa_family == AF_INET &&
 	    sa_srclen == sizeof(struct sockaddr_in));
-	src = (struct sockaddr_in *)sa_src;
+	memcpy(&src, (struct sockaddr_in *)sa_src, sizeof(src));
 	iov->iov_base = payload;
 	iov->iov_len = payload_len;
-	msg->msg_name = NULL; /* filled out in send loop */
-	msg->msg_namelen = 0;
+	msg->msg_name = &dst;
+	msg->msg_namelen = sizeof(dst);
 	msg->msg_iov = iov;
 	msg->msg_iovlen = 1;
 	msg->msg_control = cmsg_buf;
@@ -69,16 +70,17 @@ process_packet(char *payload, size_t payload_len,
 	cmsg_length += CMSG_SPACE(sizeof(*in_pktinfo));
 	in_pktinfo = (struct in_pktinfo *)CMSG_DATA(cmsg);
 	memset(in_pktinfo, 0, sizeof(*in_pktinfo));
-	if (!sin_is_loopback(src)) {
-		memcpy(&in_pktinfo->ipi_spec_dst, &src->sin_addr,
+	if (!sin_is_loopback(&src)) {
+		memcpy(&in_pktinfo->ipi_spec_dst, &src.sin_addr,
 		    sizeof(in_pktinfo->ipi_spec_dst));
 	}
 	msg->msg_controllen = cmsg_length;
 
 	LL_FOREACH(target_list, ent) {
 		printf("%s %d\n", ent->text, ntohs(ent->sin.sin_port));
-		msg->msg_name = &ent->sin;
-		msg->msg_namelen = sizeof(ent->sin);
+		memcpy(&dst, &ent->sin, sizeof(dst));
+		if (dst.sin_port == 0)
+			dst.sin_port = htons(dst_port);
 		sent_bytes = sendmsg(udp_socket, msg, 0);
 		if (sent_bytes < 0) {
 			perror("sendmsg()");
@@ -104,6 +106,11 @@ processing_one_packet(int fd)
 	struct in_pktinfo *in_pktinfo;
 
 	struct sockaddr_in src;
+	struct sockaddr_in self;
+	socklen_t selflen;
+
+	selflen = sizeof(self);
+	AZ(getsockname(fd, (struct sockaddr *)&self, &selflen));
 
 	/* Receive packet payload and sender information */
 	iov.iov_base = payload;
@@ -128,7 +135,8 @@ processing_one_packet(int fd)
 	AN(cmsg != NULL);
 	AN(in_pktinfo != NULL);
 
-	process_packet(payload, payload_len, msgh.msg_name, msgh.msg_namelen, NULL);
+	process_packet(payload, payload_len, ntohs(self.sin_port),
+	    msgh.msg_name, msgh.msg_namelen, NULL);
 }
 
 
@@ -182,12 +190,6 @@ setup_list(int argc, char *argv[])
 	for (i = 0; i < argc; i++) {
 		if (parse_sockaddr(argv[i], &sin) < 0) {
 			fprintf(stderr, "unable to parse %s\n", argv[i]);
-			free_list(list);
-			return NULL;
-		}
-		if (sin.sin_port == 0) {
-			fprintf(stderr, "port not specified for %s\n",
-			    argv[i]);
 			free_list(list);
 			return NULL;
 		}
