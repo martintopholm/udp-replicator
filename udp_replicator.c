@@ -30,6 +30,7 @@ struct entry {
 
 struct entry *target_list;
 int udp_socket;
+int udp_port;
 
 #define sin_is_loopback(x) ( \
     (ntohl((x)->sin_addr.s_addr) & 0xff000000) == 0x7f000000)
@@ -77,10 +78,9 @@ process_packet(char *payload, size_t payload_len, unsigned short dst_port,
 	msg->msg_controllen = cmsg_length;
 
 	LL_FOREACH(target_list, ent) {
-		printf("%s %d\n", ent->text, ntohs(ent->sin.sin_port));
 		memcpy(&dst, &ent->sin, sizeof(dst));
 		if (dst.sin_port == 0)
-			dst.sin_port = htons(dst_port);
+			dst.sin_port = htons(udp_port);
 		sent_bytes = sendmsg(udp_socket, msg, 0);
 		if (sent_bytes < 0) {
 			perror("sendmsg()");
@@ -122,7 +122,6 @@ processing_one_packet(int fd)
 	msgh.msg_control = control;
 	msgh.msg_controllen = sizeof(control);
 	payload_len = recvmsg(fd, &msgh, 0);
-	printf("len=%zd errno=%d\n", payload_len, errno);
 	AN(payload_len > 0);
 	in_pktinfo = NULL;
 	for (cmsg = CMSG_FIRSTHDR(&msgh); cmsg != NULL; cmsg = CMSG_NXTHDR(&msgh, cmsg)) {
@@ -255,12 +254,10 @@ main(int argc, char *argv[])
 {
 	struct recv_nflog *rcv;
 	int nflog_group;
-	int udp_port;
 	char *end;
 	int ch;
 
 	nflog_group = 0;
-	udp_port = 0;
 	while ((ch = getopt(argc, argv, "hg:p:")) != -1) {
 		switch (ch) {
 		case 'g':
@@ -292,7 +289,7 @@ main(int argc, char *argv[])
 	if (udp_socket < 0)
 		err(2, "setup_socket");
 	if (nflog_group) {
-		rcv = recv_nflog_new(31, process_packet, NULL);
+		rcv = recv_nflog_new(nflog_group, process_packet, NULL);
 		if (rcv == NULL)
 			err(2, "recv_nflog_new");
 	}
@@ -310,4 +307,3 @@ main(int argc, char *argv[])
 		recv_nflog_free(rcv);
 	return 0;
 }
-

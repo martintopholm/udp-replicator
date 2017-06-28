@@ -65,8 +65,8 @@ cb_nflog(struct nflog_g_handle *group, struct nfgenmsg *nfmsg,
 		WRONG("Bad ethertype received");
 		return 0;
 	}
-	rcv->cb_func(packet, packet_len, dst_port, (struct sockaddr *)&sastor,
-	    salen, rcv->cb_ctx);
+	rcv->cb_func(packet, packet_len, ntohs(dst_port),
+	    (struct sockaddr *)&sastor, salen, rcv->cb_ctx);
 	return 0;
 }
 
@@ -79,10 +79,16 @@ recv_nflog_new(int group, recv_nflog_cb_t cb_func, void *cb_ctx)
 	ALLOC_OBJ(rcv, RECV_NFLOG_MAGIC);
 	AN(rcv);
 	AN(rcv->nf_h = nflog_open());
-	AZ(nflog_unbind_pf(rcv->nf_h, AF_INET));
-	AZ(nflog_unbind_pf(rcv->nf_h, AF_INET6));
+	if (rcv->nf_h == NULL)
+		goto err_out;
+	if (nflog_unbind_pf(rcv->nf_h, AF_INET) < 0)
+		goto err_out;
+	if (nflog_unbind_pf(rcv->nf_h, AF_INET6) < 0)
+		goto err_out;
 	AZ(nflog_bind_pf(rcv->nf_h, AF_INET));
-	AN(rcv->nf_gh = nflog_bind_group(rcv->nf_h, group));
+	rcv->nf_gh = nflog_bind_group(rcv->nf_h, group);
+	if (rcv->nf_gh == NULL)
+	    goto err_out;
 	AZ(nflog_set_mode(rcv->nf_gh, NFULNL_COPY_PACKET, 0xffff));
 	AZ(nflog_set_nlbufsiz(rcv->nf_gh, 8192));
 	AZ(nflog_set_timeout(rcv->nf_gh, 0));
@@ -93,6 +99,10 @@ recv_nflog_new(int group, recv_nflog_cb_t cb_func, void *cb_ctx)
 	rcv->cb_func = cb_func;
 	rcv->cb_ctx = cb_ctx;
 	return rcv;
+
+err_out:
+	recv_nflog_free(rcv);
+	return NULL;
 }
 
 void
