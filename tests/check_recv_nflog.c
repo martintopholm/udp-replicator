@@ -1,5 +1,4 @@
 #include <sys/types.h>
-#include <sys/capability.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 

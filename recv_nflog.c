@@ -5,6 +5,7 @@
 #include <netinet/ip.h>
 #include <netinet/udp.h>
 
+#include <libnfnetlink/libnfnetlink.h>
 #include <libnetfilter_log/libnetfilter_log.h>
 #include <stdlib.h>
 #include <string.h>
