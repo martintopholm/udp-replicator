@@ -77,6 +77,8 @@ setup(const struct testcase_t *testcase)
 	int rc;
 	socklen_t salen;
 
+	if (geteuid() != 0)
+		return (void *)TT_SKIP;
 	ctx = calloc(1, sizeof(*ctx));
 	if (!ctx)
 		goto err;

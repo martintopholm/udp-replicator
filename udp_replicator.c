@@ -188,8 +188,14 @@ setup_list(int argc, char *argv[])
 	list = NULL;
 	for (i = 0; i < argc; i++) {
 		if (parse_sockaddr(argv[i], &sin) < 0) {
-			fprintf(stderr, "unable to parse %s\n", argv[i]);
+			fprintf(stderr, "unable to parse %s\n\n", argv[i]);
 			free_list(list);
+			return NULL;
+		}
+		if (sin.sin_port == 0 && udp_port == 0) {
+			fprintf(stderr,
+			    "destination host %s doesn't include port "
+			    "(and udp_port is zero)\n\n", argv[i]);
 			return NULL;
 		}
 		AN(ent = calloc(1, sizeof(*ent)));
@@ -241,7 +247,7 @@ usage(char *whine)
 		fprintf(stderr, "udp_replicator: %s\n", whine);
 	fprintf(stderr,
 	    "usage: udp_replicator [-h] [-g group] [-p port] "
-	    "address [address]\n"
+	    "address:port [address:port]\n"
 	    "\n");
 	exit(1);
 }
