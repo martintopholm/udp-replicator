@@ -1,3 +1,7 @@
+#include <sys/param.h>
+#include <sys/stat.h>
+
+#include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
@@ -44,8 +48,11 @@ void
 test_empty_port(void *ctx_)
 {
 	struct context *ctx = ctx_;
+	struct stat st;
 	int rc;
 
+	if (stat("./udp_replicator", &st) < 0)
+		tt_abort_perror("stat(./udp_replicator)");
 	signal(SIGALRM, timeout);
 	alarm(2);
 	rc = system("./udp_replicator -g 1 127.0.0.1");
