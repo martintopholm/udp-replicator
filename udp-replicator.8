@@ -2,7 +2,7 @@
 .Dt UDP_REPLICATOR 8
 .Os
 .Sh NAME
-.Nm udp_replicator
+.Nm udp-replicator
 .Nd copy udp packets to multiple destinations
 .Sh SYNOPSIS
 .Nm
@@ -32,7 +32,7 @@ To send packets to a group using
 .Pp
 .Bd -literal -offset indent
 # iptables -I INPUT -p udp --dport 7 -j NFLOG --nflog-group 1
-# udp_replicator -g 1 192.0.2.2:9
+# udp-replicator -g 1 192.0.2.2:9
 .Ed
 .Sh SEE ALSO
 .Xr iptables 8

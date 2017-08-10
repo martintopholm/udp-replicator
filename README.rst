@@ -1,4 +1,4 @@
-udp_replicator
+udp-replicator
 --------------
 
 For forwarding abitrary UDP streams transparently. This can be used to forward

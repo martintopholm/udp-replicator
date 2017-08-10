@@ -244,9 +244,9 @@ static void
 usage(char *whine)
 {
 	if (whine != NULL)
-		fprintf(stderr, "udp_replicator: %s\n", whine);
+		fprintf(stderr, "udp-replicator: %s\n", whine);
 	fprintf(stderr,
-	    "usage: udp_replicator [-h] [-g group] [-p port] "
+	    "usage: udp-replicator [-h] [-g group] [-p port] "
 	    "address:port [address:port]\n"
 	    "\n");
 	exit(1);
