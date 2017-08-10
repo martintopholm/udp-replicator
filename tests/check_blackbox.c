@@ -49,13 +49,22 @@ test_empty_port(void *ctx_)
 {
 	struct context *ctx = ctx_;
 	struct stat st;
+	char path[8];
+	char cmd[64];
 	int rc;
 
-	if (stat("./udp_replicator", &st) < 0)
-		tt_abort_perror("stat(./udp_replicator)");
+	if (stat("./udp_replicator", &st) == 0)
+		strncpy(path, ".", sizeof(path) - 1);
+	else if (stat("../udp_replicator", &st) == 0)
+		strncpy(path, "..", sizeof(path) - 1);
+	else
+		tt_abort_perror("stat(udp_replicator)");
+	rc = snprintf(cmd, sizeof(cmd), "%s/udp_replicator -g 1 127.0.0.1", path);
+	if (rc >= sizeof(cmd))
+		tt_abort_perror("snprintf");
 	signal(SIGALRM, timeout);
 	alarm(2);
-	rc = system("./udp_replicator -g 1 127.0.0.1");
+	rc = system(cmd);
 	if (timeout_flag)
 		tt_abort_msg("timeout during test");
 	alarm(0);
